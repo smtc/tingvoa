@@ -12,21 +12,28 @@ package voa
 import (
 	"fmt"
 	"github.com/PuerkitoBio/goquery"
+	id3 "github.com/mikkyang/id3-go"
+	"github.com/smtc/goutils"
+	"io"
+	"net/http"
+	"os"
 	"strings"
 	"time"
 )
 
 var (
 	voaSpecial = "http://www.51voa.com/VOA_Special_English/"
+	voaAssets  = "../app/assets/voa/"
 )
 
 type voaItem struct {
-	typ     string
-	href    string
-	title   string
-	content string
-	image   string
-	pub     time.Time
+	typ      string
+	href     string
+	title    string
+	content  string
+	image    string
+	duration int // seconds
+	pub      time.Time
 }
 
 func Voa() error {
@@ -85,10 +92,49 @@ func clearItem(item *voaItem) error {
 	return nil
 }
 
+// 访问网页内容，download mp3文件
+// 写入数据库中
+func handleItem() {
+
+}
+
 // parse time
 //
 func parseTm(tm string) time.Time {
 	tm = strings.TrimSpace(tm)
 	t, _ := time.Parse("2006-01-02", tm)
 	return t
+}
+
+func downloadMp3(url string) (string, error) {
+	mp3Name := goutils.ObjectId() + ".mp3"
+	mp3File, err := os.Create(voaAssets + mp3Name)
+	if err != nil {
+		return "", err
+	}
+	defer mp3File.Close()
+
+	resp, err := http.Get(url)
+	if err != nil {
+		return "", err
+	}
+	defer resp.Body.Close()
+	_, err = io.Copy(mp3File, resp.Body)
+	if err != nil {
+		return "", err
+	}
+
+	return voaAssets + mp3Name, nil
+}
+
+func mp3Info(fn, title string) error {
+	info, err := id3.Open(fn)
+	if err != nil {
+		return err
+	}
+	defer info.Close()
+
+	info.SetTitle(title)
+	info.SetArtist("ting voa")
+	return nil
 }

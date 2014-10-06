@@ -24,16 +24,19 @@ import (
 var (
 	voaSpecial = "http://www.51voa.com/VOA_Special_English/"
 	voaAssets  = "../app/assets/voa/"
+	voaHost    = "http://tingvoa.me"
 )
 
-type voaItem struct {
-	typ      string
-	href     string
-	title    string
-	content  string
-	image    string
-	duration int // seconds
-	pub      time.Time
+type VoaItem struct {
+	href      string    `sql:"-" json:"-"`
+	Id        int64     `json:"id"`
+	Typ       string    `sql:"size:64" json:"-"`
+	Mp3       string    `sql:"size:256" json:"mp3"`
+	Content   string    `sql:"size:60000" json:"content"`
+	Title     string    `sql:"size:128" json:"title"`
+	Duration  int       `json:"duration"` // seconds
+	Image     string    `sql:"size:256" json:"image"`
+	Published time.Time `json:"-"`
 }
 
 func Voa() error {
@@ -41,7 +44,7 @@ func Voa() error {
 	if err != nil {
 		return err
 	}
-	items := []voaItem{}
+	items := []VoaItem{}
 	doc.Find("#list > li").Each(func(i int, s *goquery.Selection) {
 		hrefs := s.Find("a[href]")
 		if hrefs.Length() != 2 {
@@ -50,10 +53,10 @@ func Voa() error {
 		a1 := hrefs.First()
 		a2 := hrefs.Last()
 		href, _ := a2.Attr("href")
-		item := voaItem{
-			typ:   a1.Text(),
+		item := VoaItem{
+			Typ:   a1.Text(),
 			href:  href,
-			title: a2.Text(),
+			Title: a2.Text(),
 		}
 		if err := clearItem(&item); err == nil {
 			items = append(items, item)
@@ -71,22 +74,22 @@ func Voa() error {
 
 // typ: remove [,], trim space, ex: [ Education Report ]
 // title: ex: Is a College Education Worth the Price?  (2014-10-4)
-func clearItem(item *voaItem) error {
-	item.typ = strings.Replace(item.typ, "[", "", -1)
-	item.typ = strings.Replace(item.typ, "]", "", -1)
-	item.typ = strings.TrimSpace(item.typ)
+func clearItem(item *VoaItem) error {
+	item.Typ = strings.Replace(item.Typ, "[", "", -1)
+	item.Typ = strings.Replace(item.Typ, "]", "", -1)
+	item.Typ = strings.TrimSpace(item.Typ)
 
-	segs := strings.Split(item.title, "(")
+	segs := strings.Split(item.Title, "(")
 	if len(segs) < 2 {
-		return fmt.Errorf("item title format error: %s", item.title)
+		return fmt.Errorf("item title format error: %s", item.Title)
 	} else if len(segs) == 2 {
-		item.title = strings.TrimSpace(segs[0])
+		item.Title = strings.TrimSpace(segs[0])
 		tm := strings.Replace(segs[1], ")", "", -1)
-		item.pub = parseTm(tm)
+		item.Published = parseTm(tm)
 	} else {
 		tm := strings.Replace(segs[len(segs)-1], ")", "", -1)
-		item.title = strings.Join(segs[0:len(segs)-1], "(")
-		item.pub = parseTm(tm)
+		item.Title = strings.Join(segs[0:len(segs)-1], "(")
+		item.Published = parseTm(tm)
 	}
 
 	return nil
@@ -94,8 +97,21 @@ func clearItem(item *voaItem) error {
 
 // 访问网页内容，download mp3文件
 // 写入数据库中
-func handleItem() {
-
+func handleItem(item *VoaItem) error {
+	doc, err := goquery.NewDocument(item.href)
+	if err != nil {
+		return err
+	}
+	if err = handleMp3(item); err != nil {
+		return err
+	}
+	content := ""
+	doc.Find("#content > p").Each(func(i int, s *goquery.Selection) {
+		content += s.Text()
+	})
+	item.Content = content
+	item.Image, _ = doc.Find("#content > .contentImage > img").First().Attr("src")
+	return nil
 }
 
 // parse time
@@ -106,7 +122,24 @@ func parseTm(tm string) time.Time {
 	return t
 }
 
-func downloadMp3(url string) (string, error) {
+func handleMp3(item *VoaItem) error {
+	fn, err := downloadMp3(item.href)
+	if err != nil {
+		return err
+	}
+
+	item.Mp3 = voaHost + "/assets/voa/" + fn
+
+	return mp3Info(voaAssets+fn, item.Title)
+}
+
+// 确认该item所在的目录(yyyy-mm)存在, 如果不存在，创建目录
+func mp3Dir(item *VoaItem) (string, error) {
+
+}
+
+// 下载mp3
+func downloadMp3(item *VoaItem) (string, error) {
 	mp3Name := goutils.ObjectId() + ".mp3"
 	mp3File, err := os.Create(voaAssets + mp3Name)
 	if err != nil {
@@ -114,7 +147,7 @@ func downloadMp3(url string) (string, error) {
 	}
 	defer mp3File.Close()
 
-	resp, err := http.Get(url)
+	resp, err := http.Get(item.href)
 	if err != nil {
 		return "", err
 	}
@@ -124,7 +157,7 @@ func downloadMp3(url string) (string, error) {
 		return "", err
 	}
 
-	return voaAssets + mp3Name, nil
+	return mp3Name, nil
 }
 
 func mp3Info(fn, title string) error {

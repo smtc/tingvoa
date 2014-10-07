@@ -10,6 +10,7 @@ package voa
 // 4 插图
 
 import (
+	"errors"
 	"fmt"
 	"github.com/PuerkitoBio/goquery"
 	id3 "github.com/mikkyang/id3-go"
@@ -33,6 +34,7 @@ var (
 	voaHost    = "http://tingvoa.me"
 	host51voa  = "http://www.51voa.com"
 	voaIdRe    = regexp.MustCompile(`^\d+$`)
+	NoNewItem  = errors.New("No new voa special english")
 )
 
 type VoaItem struct {
@@ -96,7 +98,7 @@ func Voa() error {
 	})
 
 	if len(items) == 0 {
-		return fmt.Errorf("Not found voa special english item.")
+		return NoNewItem
 	}
 
 	// download mp3, lrc, get content

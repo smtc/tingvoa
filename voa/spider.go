@@ -38,6 +38,7 @@ var (
 type VoaItem struct {
 	href         string    `sql:"-" json:"-"`
 	downloadHref string    `sql:"-" json:"-"`
+	lyricHref    string    `sql:"-" json:"-"`
 	Id           int64     `json:"id"`
 	OrigId       int64     `json:"-" sql:"not null;unique"`
 	Typ          string    `sql:"size:64" json:"-"`
@@ -57,7 +58,7 @@ func Voa() error {
 		return err
 	}
 	lastId := lastItemId()
-	fmt.Println(lastId)
+
 	items := []VoaItem{}
 	doc.Find("#list li").Each(func(i int, s *goquery.Selection) {
 		hrefs := s.Find("a[href]")
@@ -76,7 +77,7 @@ func Voa() error {
 		if !(strings.HasPrefix(href, "http://") || strings.HasPrefix(href, "https://")) {
 			href = host51voa + href
 		}
-		fmt.Println(origId)
+
 		// 该item应该已经获取过
 		if origId <= lastId {
 			return
@@ -168,6 +169,16 @@ func clearItem(item *VoaItem) error {
 	return nil
 }
 
+func addHostPrefix(href string) string {
+	if href == "" {
+		return href
+	}
+	if !(strings.HasPrefix(href, "http://") || strings.HasPrefix(href, "https://")) {
+		return host51voa + href
+	}
+	return href
+}
+
 // 访问网页内容，download mp3文件
 // 写入数据库中
 func handleItem(item *VoaItem) error {
@@ -179,6 +190,10 @@ func handleItem(item *VoaItem) error {
 	if item.downloadHref, exist = doc.Find("#mp3").Attr("href"); !exist {
 		return fmt.Errorf("mp3 download href not exist")
 	}
+	item.downloadHref = addHostPrefix(item.downloadHref)
+
+	item.lyricHref, _ = doc.Find("#lrc").Attr("href")
+	item.lyricHref = addHostPrefix(item.lyricHref)
 
 	if err = handleMp3(item); err != nil {
 		return err
@@ -196,6 +211,10 @@ func handleMp3(item *VoaItem) error {
 	fn, err := downloadMp3(item)
 	if err != nil {
 		return err
+	}
+
+	if _, err := downloadLyric(item); err != nil {
+		log.Printf("download lyric for %d failed: %v\n", item.OrigId, err)
 	}
 
 	yyyymm := fmt.Sprintf("%04d%02d", item.Published.Year(), item.Published.Month())
@@ -228,18 +247,48 @@ func downloadMp3(item *VoaItem) (string, error) {
 	}
 	defer mp3File.Close()
 
-	/*
-		resp, err := http.Get(item.downloadHref)
-		if err != nil {
-			return "", err
-		}
-		defer resp.Body.Close()
-		_, err = io.Copy(mp3File, resp.Body)
-		if err != nil {
-			return "", err
-		}
-	*/
+	resp, err := http.Get(item.downloadHref)
+	if err != nil {
+		return "", err
+	}
+	defer resp.Body.Close()
+	_, err = io.Copy(mp3File, resp.Body)
+	if err != nil {
+		return "", err
+	}
+
 	return mp3Name, nil
+}
+
+// 下载歌词
+func downloadLyric(item *VoaItem) (string, error) {
+	// lyric
+	if item.lyricHref == "" {
+		return "", nil
+	}
+
+	lycName := fmt.Sprint(item.OrigId) + ".lrc"
+	dir, err := mp3Dir(item)
+	if err != nil {
+		return "", err
+	}
+	lycFile, err := os.Create(path.Join(dir, lycName))
+	if err != nil {
+		return "", err
+	}
+	defer lycFile.Close()
+
+	resp, err := http.Get(item.lyricHref)
+	if err != nil {
+		return "", err
+	}
+	defer resp.Body.Close()
+	_, err = io.Copy(lycFile, resp.Body)
+	if err != nil {
+		return "", err
+	}
+
+	return lycName, nil
 }
 
 func mp3Info(fn, title string) error {

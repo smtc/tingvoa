@@ -1,21 +1,20 @@
 package voa
 
 import (
-	"fmt"
+	"github.com/guotie/config"
+	"github.com/guotie/deferinit"
 	"testing"
-	"time"
 )
 
-func TestParseTm(t *testing.T) {
-	tm, _ := time.Parse("2006-01-02", "2014-09-05")
-	fmt.Println(tm)
+func init() {
+	config.ReadCfg("./config.json")
+	deferinit.InitAll()
+	createTable()
 }
 
-func testDownload(t *testing.T) {
-	_, err := downloadMp3("http://stream.51voa.com/201410/se-ws-wildcat-congressmen-money-oil-wells-and-strikers-04oct14.mp3")
+func TestVoa(t *testing.T) {
+	err := Voa()
 	if err != nil {
-		fmt.Println(err)
-		t.Fatal("download voa file failed")
+		t.Fatal(err)
 	}
-
 }
